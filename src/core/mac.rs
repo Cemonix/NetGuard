@@ -19,13 +19,14 @@ impl fmt::Display for MacAddressError {
 
 impl Error for MacAddressError {}
 
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct MacAddress {
     address: [u8; MAC_ADDRESS_LENGTH],
 }
 
 impl MacAddress {
     // Create a new MAC address from a byte array
-    pub fn from_bytes(bytes: [u8; MAC_ADDRESS_LENGTH]) -> Self {
+    pub fn new(bytes: [u8; MAC_ADDRESS_LENGTH]) -> Self {
         MacAddress { address: bytes }
     }
 
@@ -70,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_from_bytes() {
-        let mac = MacAddress::from_bytes([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+        let mac = MacAddress::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
         assert_eq!(mac.address(), [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     }
 
@@ -96,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_to_string() {
-        let mac = MacAddress::from_bytes([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+        let mac = MacAddress::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
         let str_mac = mac.to_string();
         assert_eq!(str_mac, "aa:bb:cc:dd:ee:ff");
     }
