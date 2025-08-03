@@ -1,59 +1,24 @@
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{Ipv4Addr};
 use std::time::{Duration, Instant};
-use pnet::datalink::{self, channel, Channel, NetworkInterface};
+use pnet::datalink::{channel, Channel};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::packet::arp::{ArpPacket, MutableArpPacket, ArpHardwareTypes, ArpOperations};
 use pnet::packet::{Packet, MutablePacket};
 use pnet::util::MacAddr;
 
-use crate::core::MAC_ADDRESS_BROADCAST;
+use crate::core::{NetworkInterface, MAC_ADDRESS_BROADCAST};
 use super::error::ScanError;
 use super::common::{NetworkScanner, DiscoveredDevice};
 
 #[derive(Clone)]
 pub struct ArpScanner {
-    interface_name: String,
+    network_interface: NetworkInterface,
     timeout: Duration,
 }
 
 impl ArpScanner {
-    pub fn new(interface_name: String, timeout: Duration) -> Self {
-        ArpScanner { interface_name, timeout }
-    }
-
-    fn interface(&self) -> Result<NetworkInterface, ScanError> {
-        let interfaces = datalink::interfaces();
-        let interface = interfaces.into_iter()
-            .find(|iface| iface.name == self.interface_name)
-            .ok_or(ScanError::InvalidInterface)?;
-        Ok(interface)
-    }
-
-    fn get_interface_info(&self) -> Result<(Ipv4Addr, MacAddr), ScanError> {
-        let interface = self.interface()?;
-
-        // Get ip address from the interface
-        let ipv4_addr = interface.ips
-            .iter()
-            .find_map(|ip| match ip.ip() {
-                IpAddr::V4(v4) => Some(v4),
-                _ => None,
-            })
-            .ok_or(ScanError::InvalidInterface)?;
-
-        // Get mac_address from the interface
-        let mac_address = match interface.mac {
-            Some(mac) => mac,
-            None => {
-                if interface.name == "lo" {
-                    MacAddr::new(0, 0, 0, 0, 0, 0) // Loopback interface has no MAC
-                } else {
-                    return Err(ScanError::InvalidInterface);
-                }
-            }
-        };
-
-        Ok((ipv4_addr, mac_address))
+    pub fn new(interface: NetworkInterface, timeout: Duration) -> Self {
+        ArpScanner { network_interface: interface, timeout }
     }
 
     fn build_arp_request_packet(
@@ -63,32 +28,32 @@ impl ArpScanner {
         target_ip: Ipv4Addr,
     ) -> Result<Vec<u8>, ScanError> {
         let mut packet_buffer = vec![0u8; 42]; // 14 bytes Ethernet + 28 bytes ARP
-        {
-            let mut ethernet_packet = MutableEthernetPacket::new(&mut packet_buffer)
-                .ok_or(ScanError::NetworkError("Failed to create Ethernet packet".to_string()))?;
+        
+        let mut ethernet_packet = MutableEthernetPacket::new(&mut packet_buffer)
+            .ok_or(ScanError::NetworkError("Failed to create Ethernet packet".to_string()))?;
 
-            ethernet_packet.set_destination(MAC_ADDRESS_BROADCAST);
-            ethernet_packet.set_source(local_mac);
-            ethernet_packet.set_ethertype(EtherTypes::Arp);
+        ethernet_packet.set_destination(MAC_ADDRESS_BROADCAST);
+        ethernet_packet.set_source(local_mac);
+        ethernet_packet.set_ethertype(EtherTypes::Arp);
 
-            let mut arp_packet = MutableArpPacket::new(ethernet_packet.payload_mut())
-                .ok_or(ScanError::NetworkError("Failed to create ARP packet".to_string()))?;
+        let mut arp_packet = MutableArpPacket::new(ethernet_packet.payload_mut())
+            .ok_or(ScanError::NetworkError("Failed to create ARP packet".to_string()))?;
 
-            arp_packet.set_hardware_type(ArpHardwareTypes::Ethernet);
-            arp_packet.set_protocol_type(EtherTypes::Ipv4);
-            arp_packet.set_hw_addr_len(6);
-            arp_packet.set_proto_addr_len(4);
-            arp_packet.set_operation(ArpOperations::Request);
-            arp_packet.set_sender_hw_addr(local_mac);
-            arp_packet.set_sender_proto_addr(local_ip);
-            arp_packet.set_target_hw_addr(MacAddr::new(0, 0, 0, 0, 0, 0));
-            arp_packet.set_target_proto_addr(target_ip);
-        }
+        arp_packet.set_hardware_type(ArpHardwareTypes::Ethernet);
+        arp_packet.set_protocol_type(EtherTypes::Ipv4);
+        arp_packet.set_hw_addr_len(6);
+        arp_packet.set_proto_addr_len(4);
+        arp_packet.set_operation(ArpOperations::Request);
+        arp_packet.set_sender_hw_addr(local_mac);
+        arp_packet.set_sender_proto_addr(local_ip);
+        arp_packet.set_target_hw_addr(MacAddr::new(0, 0, 0, 0, 0, 0));
+        arp_packet.set_target_proto_addr(target_ip);
+        
         Ok(packet_buffer)
     }
 
     async fn send_arp_request(&self, target_ip: Ipv4Addr) -> Result<Option<(MacAddr, Ipv4Addr)>, ScanError> {
-        let interface = self.interface()?;
+        let interface = self.network_interface.interface()?;
         let channel = match channel(&interface, Default::default()) {
             Ok(channel) => channel,
             Err(e) => return Err(ScanError::NetworkError(e.to_string())),
@@ -99,7 +64,7 @@ impl ArpScanner {
             _ => return Err(ScanError::NetworkError("Unsupported channel type".to_string())),
         };
 
-        let (local_ip, local_mac) = self.get_interface_info()?;
+        let (local_ip, local_mac) = self.network_interface.get_interface_info()?;
 
         let packet_buffer = self.build_arp_request_packet(local_ip, local_mac, target_ip)?;
 
