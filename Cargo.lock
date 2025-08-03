@@ -156,6 +156,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "pnet",
+ "socket2",
  "tokio",
 ]
 
