@@ -1,6 +1,10 @@
 use std::{error::Error, fmt};
 
+use pnet::util::MacAddr;
+
 pub const MAC_ADDRESS_LENGTH: usize = 6;
+
+pub const MAC_ADDRESS_BROADCAST: MacAddr = MacAddr(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF);
 
 #[derive(Debug, PartialEq)]
 pub enum MacAddressError {

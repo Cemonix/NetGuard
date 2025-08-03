@@ -1,28 +1,28 @@
-use std::{fmt, str::FromStr};
+use std::{fmt, str::FromStr, net::Ipv4Addr};
 
-use crate::core::{ IPV4_ADDRESS_LENGTH, Ipv4Address };
+use crate::core::{ IPV4_ADDRESS_LENGTH };
 
 pub const OCTET_LEN: u8 = 8;
 pub const PREFIX_MAX: u8 = 32;
 
 // Standard CIDR networks
 pub const RFC_A: Cidr = Cidr::new_const(
-    Ipv4Address::new_const([10, 0, 0, 0]), 8
+    Ipv4Addr::new(10, 0, 0, 0), 8
 );
 pub const RFC_B: Cidr = Cidr::new_const(
-    Ipv4Address::new_const([172, 16, 0, 0]), 12
+    Ipv4Addr::new(172, 16, 0, 0), 12
 );
 pub const RFC_C: Cidr = Cidr::new_const(
-    Ipv4Address::new_const([192, 168, 0, 0]), 16
+    Ipv4Addr::new(192, 168, 0, 0), 16
 );
 pub const LOOPBACK: Cidr = Cidr::new_const(
-    Ipv4Address::new_const([127, 0, 0, 0]), 8
+    Ipv4Addr::new(127, 0, 0, 0), 8
 );
 pub const LINK_LOCAL: Cidr = Cidr::new_const(
-    Ipv4Address::new_const([169, 254, 0, 0]), 16
+    Ipv4Addr::new(169, 254, 0, 0), 16
 );
 pub const MULTICAST: Cidr = Cidr::new_const(
-    Ipv4Address::new_const([224, 0, 0, 0]), 4
+    Ipv4Addr::new(224, 0, 0, 0), 4
 );
 
 #[derive(Debug, PartialEq)]
@@ -69,16 +69,16 @@ impl StandardNetwork {
 
 #[derive(Debug, PartialEq)]
 pub struct Cidr {
-    network: Ipv4Address, // Network address in CIDR notation
+    network: Ipv4Addr, // Network address in CIDR notation
     prefix_len: u8,       // Number of bits in the prefix
 }
 
 impl Cidr {
-    pub const fn new_const(network: Ipv4Address, prefix_len: u8) -> Self {
+    pub const fn new_const(network: Ipv4Addr, prefix_len: u8) -> Self {
         Cidr { network, prefix_len }
     }
 
-    pub fn new(network: Ipv4Address, prefix_len: u8) -> Result<Self, CidrError> {
+    pub fn new(network: Ipv4Addr, prefix_len: u8) -> Result<Self, CidrError> {
         if prefix_len > PREFIX_MAX {
             return Err(CidrError::InvalidPrefixLength);
         }
@@ -86,7 +86,7 @@ impl Cidr {
         Ok(Cidr { network, prefix_len })
     }
 
-    pub fn network(&self) -> &Ipv4Address {
+    pub fn network(&self) -> &Ipv4Addr {
         &self.network
     }
 
@@ -94,8 +94,8 @@ impl Cidr {
         self.prefix_len
     }
 
-    pub fn is_private_ip(ip: &Ipv4Address) -> bool {
-        let octets = ip.address();
+    pub fn is_private_ip(ip: &Ipv4Addr) -> bool {
+        let octets = ip.octets();
 
         match octets[0] {
             10 => true,                                         // 10.0.0.0/8
@@ -108,7 +108,7 @@ impl Cidr {
         }
     }
 
-    pub fn classify_ip(ip: &Ipv4Address) -> Option<StandardNetwork> {
+    pub fn classify_ip(ip: &Ipv4Addr) -> Option<StandardNetwork> {
         if RFC_A.contains(ip).unwrap_or(false) { Some(StandardNetwork::RfcA) }
         else if RFC_B.contains(ip).unwrap_or(false) { Some(StandardNetwork::RfcB) }
         else if RFC_C.contains(ip).unwrap_or(false) { Some(StandardNetwork::RfcC) }
@@ -138,23 +138,25 @@ impl Cidr {
         mask
     }
 
-    pub fn contains(&self, ip: &Ipv4Address) -> Result<bool, CidrError> {
+    pub fn contains(&self, ip: &Ipv4Addr) -> Result<bool, CidrError> {
         let mask = self.mask();
 
-        let ip_bits = ip.address();
+        let network_octets = self.network.octets();
+        let octets = ip.octets();
 
         for i in 0..IPV4_ADDRESS_LENGTH {
-            if (ip_bits[i] & mask[i]) != (self.network[i] & mask[i]) {
+            if (octets[i] & mask[i]) != (network_octets[i] & mask[i]) {
                 return Ok(false);
             }
         }
         Ok(true)
     }
 
-    pub fn network_addresses(&self) -> Vec<String> {
+    pub fn network_addresses(&self) -> Vec<Ipv4Addr> {
         let host_bits = 32 - self.prefix_len as u32;
         let host_count = u32::pow(2, host_bits) - 2; // Exclude network and broadcast
         
+        let network_octets = self.network.octets();
         let mask = self.mask();
         
         let mut addresses = Vec::with_capacity(host_count as usize);
@@ -170,12 +172,12 @@ impl Cidr {
             // i = 0000 0000 1111 0000 0110 0000 0000 0101 | 0000 0000 1101 (these are out) & 0xFF = 0000 0000 0000 0000 0000 0000 0000 0101
             for octet in 0..IPV4_ADDRESS_LENGTH {
                 let curr_octet = 3 - octet;
-                host[curr_octet] = self.network[curr_octet] & mask[curr_octet];
+                host[curr_octet] = network_octets[curr_octet] & mask[curr_octet];
                 host[curr_octet] |= ((i >> (octet * OCTET_LEN as usize)) & 0xFF) as u8;
             }
 
-            let addr_str = Ipv4Address::new(host).to_string();
-            addresses.push(addr_str);
+            let addr = Ipv4Addr::new(host[0], host[1], host[2], host[3]);
+            addresses.push(addr);
         }
         addresses
     }
@@ -198,7 +200,7 @@ impl FromStr for Cidr {
         
         let prefix_len = parts[1].parse().map_err(|_| CidrError::InvalidPrefixLength)?;
         let network_str = parts[0];
-        let network = Ipv4Address::parse(network_str)
+        let network = Ipv4Addr::from_str(network_str)
             .map_err(|_| CidrError::InvalidIpFormat)?;
         Ok(Cidr { network, prefix_len })
     }
@@ -211,18 +213,18 @@ mod tests {
     #[test]
     fn test_cidr_new() {
         let cidr = Cidr::new(
-            Ipv4Address::new([192, 168, 1, 0]), 24
+            Ipv4Addr::new(192, 168, 1, 0), 24
         );
         assert!(cidr.is_ok());
         let cidr = cidr.unwrap();
-        assert_eq!(cidr.network(), &Ipv4Address::new([192, 168, 1, 0]));
+        assert_eq!(cidr.network(), &Ipv4Addr::new(192, 168, 1, 0));
         assert_eq!(cidr.prefix_len(), 24);
     }
 
     #[test]
     fn test_cidr_invalid_prefix_length() {
         let cidr = Cidr::new(
-            Ipv4Address::new([192, 168, 1, 0]), 33
+            Ipv4Addr::new(192, 168, 1, 0), 33
         );
         assert!(cidr.is_err());
         assert_eq!(cidr.err(), Some(CidrError::InvalidPrefixLength));
@@ -231,7 +233,7 @@ mod tests {
     #[test]
     fn test_cidr_mask() {
         let cidr = Cidr::new(
-            Ipv4Address::new([192, 168, 1, 0]), 24
+            Ipv4Addr::new(192, 168, 1, 0), 24
         );
         assert!(cidr.is_ok());
         let cidr = cidr.unwrap();
@@ -242,45 +244,45 @@ mod tests {
     #[test]
     fn test_cidr_contains() {
         let cidr = Cidr::new(
-            Ipv4Address::new([192, 168, 1, 0]), 24
+            Ipv4Addr::new(192, 168, 1, 0), 24
         );
         assert!(cidr.is_ok());
         let cidr = cidr.unwrap();
 
-        let ip = Ipv4Address::new([192, 168, 1, 1]);
+        let ip = Ipv4Addr::new(192, 168, 1, 1);
         assert!(cidr.contains(&ip).unwrap());
     }
 
     #[test]
     fn test_cidr_not_contains() {
         let cidr = Cidr::new(
-            Ipv4Address::new([192, 168, 1, 0]), 24
+            Ipv4Addr::new(192, 168, 1, 0), 24
         );
         assert!(cidr.is_ok());
         let cidr = cidr.unwrap();
 
-        let ip = Ipv4Address::new([192, 169, 1, 1]);
+        let ip = Ipv4Addr::new(192, 169, 1, 1);
         assert!(!cidr.contains(&ip).unwrap());
     }
 
     #[test]
     fn test_cidr_network_addresses() {
         let cidr = Cidr::new(
-            Ipv4Address::new([192, 168, 1, 0]), 24
+            Ipv4Addr::new(192, 168, 1, 0), 24
         );
         assert!(cidr.is_ok());
         let cidr = cidr.unwrap();
 
         let addresses = cidr.network_addresses();
         assert_eq!(addresses.len(), 254);
-        assert_eq!(addresses[0], "192.168.1.1");
-        assert_eq!(addresses[253], "192.168.1.254");
+        assert_eq!(addresses[0], Ipv4Addr::new(192, 168, 1, 1));
+        assert_eq!(addresses[253], Ipv4Addr::new(192, 168, 1, 254));
     }
 
     #[test]
     fn test_cidr_display() {
         let cidr = Cidr::new(
-            Ipv4Address::new([192, 168, 1, 0]), 24
+            Ipv4Addr::new(192, 168, 1, 0), 24
         );
         assert!(cidr.is_ok());
         let cidr = cidr.unwrap();
@@ -292,20 +294,20 @@ mod tests {
     #[test]
     fn test_cidr_from_str() {
         let cidr: Cidr = "192.168.1.0/24".parse().unwrap();
-        assert_eq!(cidr.network(), &Ipv4Address::new([192, 168, 1, 0]));
+        assert_eq!(cidr.network(), &Ipv4Addr::new(192, 168, 1, 0));
         assert_eq!(cidr.prefix_len(), 24);
     }
 
     #[test]
     fn test_cidr_is_private_ip() {
-        assert!(Cidr::is_private_ip(&Ipv4Address::new([192, 168, 1, 1])));
-        assert!(!Cidr::is_private_ip(&Ipv4Address::new([8, 8, 8, 8])));
+        assert!(Cidr::is_private_ip(&Ipv4Addr::new(192, 168, 1, 1)));
+        assert!(!Cidr::is_private_ip(&Ipv4Addr::new(8, 8, 8, 8)));
     }
 
     #[test]
     fn test_cidr_classify_ip() {
-        assert_eq!(Cidr::classify_ip(&Ipv4Address::new([192, 168, 1, 1])), Some(StandardNetwork::RfcC));
-        assert_eq!(Cidr::classify_ip(&Ipv4Address::new([8, 8, 8, 8])), None);
+        assert_eq!(Cidr::classify_ip(&Ipv4Addr::new(192, 168, 1, 1)), Some(StandardNetwork::RfcC));
+        assert_eq!(Cidr::classify_ip(&Ipv4Addr::new(8, 8, 8, 8)), None);
     }
 
     #[test]

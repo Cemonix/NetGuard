@@ -1,1 +1,3 @@
-pub mod arp_scanner;
+pub mod network_scanner;
+
+pub use network_scanner::{NetworkScanner, DiscoveredDevice, ScanError};
