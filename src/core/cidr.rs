@@ -1,9 +1,6 @@
 use std::{fmt, str::FromStr, net::Ipv4Addr};
 
-use crate::core::{ IPV4_ADDRESS_LENGTH };
-
-pub const OCTET_LEN: u8 = 8;
-pub const PREFIX_MAX: u8 = 32;
+use crate::core::constants;
 
 // Standard CIDR networks
 pub const RFC_A: Cidr = Cidr::new_const(
@@ -79,7 +76,7 @@ impl Cidr {
     }
 
     pub fn new(network: Ipv4Addr, prefix_len: u8) -> Result<Self, CidrError> {
-        if prefix_len > PREFIX_MAX {
+        if prefix_len > constants::IPV4_PREFIX_MAX {
             return Err(CidrError::InvalidPrefixLength);
         }
 
@@ -120,8 +117,8 @@ impl Cidr {
 
     pub fn mask(&self) -> [u8; 4] {
         let mut mask = [0; 4];
-        let full_bytes = self.prefix_len / OCTET_LEN;
-        let remaining_bits = self.prefix_len % OCTET_LEN;
+        let full_bytes = self.prefix_len / constants::IPV4_OCTET_LEN;
+        let remaining_bits = self.prefix_len % constants::IPV4_OCTET_LEN;
 
         for i in 0..full_bytes {
             mask[i as usize] = 255; // Full byte
@@ -132,7 +129,7 @@ impl Cidr {
             // For example, if prefix_len is 25, we need to set the first 7 bits of the last byte
             // mask: 00000001 result: 10000000 | 11111111 << (8 - 1)
             // we move all the ones to the left by 7, so only the last one remains
-            mask[full_bytes as usize] = 255 << (OCTET_LEN - remaining_bits);
+            mask[full_bytes as usize] = 255 << (constants::IPV4_OCTET_LEN - remaining_bits);
         }
 
         mask
@@ -144,7 +141,7 @@ impl Cidr {
         let network_octets = self.network.octets();
         let octets = ip.octets();
 
-        for i in 0..IPV4_ADDRESS_LENGTH {
+        for i in 0..constants::IPV4_ADDRESS_LENGTH {
             if (octets[i] & mask[i]) != (network_octets[i] & mask[i]) {
                 return Ok(false);
             }
@@ -161,7 +158,7 @@ impl Cidr {
         
         let mut addresses = Vec::with_capacity(host_count as usize);
         for i in 1..=host_count { // Start from 1 to skip network address
-            let mut host = [0u8; IPV4_ADDRESS_LENGTH];
+            let mut host = [0u8; constants::IPV4_ADDRESS_LENGTH];
             
             // Start with the network address (apply mask)
             // Add the host number i to the network address
@@ -170,10 +167,10 @@ impl Cidr {
             // i = 1111 0000 0110 0000 0000 0101 0000 0000 1101 & 0000 0000 0000 0000 0000 0000 0000 1111 (0xFF) = 0000 0000 0000 0000 0000 0000 0000 1101
             // then we shift i to right by octet_len so we get:
             // i = 0000 0000 1111 0000 0110 0000 0000 0101 | 0000 0000 1101 (these are out) & 0xFF = 0000 0000 0000 0000 0000 0000 0000 0101
-            for octet in 0..IPV4_ADDRESS_LENGTH {
+            for octet in 0..constants::IPV4_ADDRESS_LENGTH {
                 let curr_octet = 3 - octet;
                 host[curr_octet] = network_octets[curr_octet] & mask[curr_octet];
-                host[curr_octet] |= ((i >> (octet * OCTET_LEN as usize)) & 0xFF) as u8;
+                host[curr_octet] |= ((i >> (octet * constants::IPV4_OCTET_LEN as usize)) & 0xFF) as u8;
             }
 
             let addr = Ipv4Addr::new(host[0], host[1], host[2], host[3]);

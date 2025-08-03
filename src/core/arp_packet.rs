@@ -2,10 +2,7 @@ use std::{error::Error, fmt::{self, Display}, net::Ipv4Addr};
 
 use pnet::util::MacAddr;
 
-use crate::core::{IPV4_ADDRESS_LENGTH, MAC_ADDRESS_LENGTH};
-
-pub const ARP_PACKET_SIZE: usize = 28; // Header (8) + Sender MAC (6) + Sender IP (4) + Target MAC (6) + Target IP (4)
-pub const ARP_HEADER_SIZE: usize = 8; // Hardware type (2) + Protocol type (2) + Hardware size (1) + Protocol size (1) + Operation (2)
+use crate::core::{constants::{ARP_PACKET_SIZE, IPV4_ADDRESS_LENGTH, MAC_ADDRESS_LENGTH}};
 
 #[derive(Debug, PartialEq)]
 pub enum ArpPacketError {

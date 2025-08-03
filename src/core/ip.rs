@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::ops::Index;
 
-pub const IPV4_ADDRESS_LENGTH: usize = 4;
+use crate::core::constants::IPV4_ADDRESS_LENGTH;
 
 #[derive(Debug, PartialEq)]
 pub enum IpAddressError {
