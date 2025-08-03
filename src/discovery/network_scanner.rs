@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
-use crate::core::Cidr;
+use crate::core::{Cidr, NetworkInterface};
 use super::scanners::{ArpScanner, PingScanner, PingResult, NetworkScanner};
 pub use super::scanners::{ScanError, DiscoveredDevice};
 
@@ -18,7 +18,7 @@ impl NetworkDiscovery {
 
     /// Create an ARP scanner for this network configuration
     pub fn arp_scanner(&self) -> ArpScanner {
-        ArpScanner::new(self.interface_name.clone(), self.timeout)
+        ArpScanner::new(NetworkInterface::new(self.interface_name.clone()), self.timeout)
     }
 
     /// Create a ping scanner for this network configuration
@@ -59,6 +59,18 @@ impl NetworkDiscovery {
     pub async fn scan_network(&self, network: &Cidr) -> Result<Vec<DiscoveredDevice>, ScanError> {
         self.scan_network_arp(network).await
     }
+
+    pub fn guess_os_from_ttl(observed_ttl: u8, hops: u8) -> Option<&'static str> {
+      let original_ttl = observed_ttl + hops;
+
+      match original_ttl {
+          32 => Some("Legacy Windows"),
+          64 => Some("Linux/Unix/macOS"),
+          128 => Some("Windows"),
+          255 => Some("Router/Network Device"),
+          _ => None
+      }
+  }
 }
 
 #[cfg(test)]
