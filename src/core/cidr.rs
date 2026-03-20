@@ -67,7 +67,7 @@ impl StandardNetwork {
 #[derive(Debug, PartialEq)]
 pub struct Cidr {
     network: Ipv4Addr, // Network address in CIDR notation
-    prefix_len: u8,       // Number of bits in the prefix
+    prefix_len: u8,    // Number of bits in the prefix
 }
 
 impl Cidr {
