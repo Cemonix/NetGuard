@@ -54,52 +54,51 @@ impl ArpScanner {
 
     async fn send_arp_request(&self, target_ip: Ipv4Addr) -> Result<Option<(MacAddr, Ipv4Addr)>, ScanError> {
         let interface = self.network_interface.interface()?;
-        let channel = match channel(&interface, Default::default()) {
-            Ok(channel) => channel,
-            Err(e) => return Err(ScanError::NetworkError(e.to_string())),
-        };
-
-        let (mut sender, mut receiver) = match channel {
-            Channel::Ethernet(tx, rx) => (tx, rx),
-            _ => return Err(ScanError::NetworkError("Unsupported channel type".to_string())),
-        };
-
         let (local_ip, local_mac) = self.network_interface.get_interface_info()?;
-
         let packet_buffer = self.build_arp_request_packet(local_ip, local_mac, target_ip)?;
+        let timeout = self.timeout;
 
-        // Send the packet
-        match sender.send_to(packet_buffer.as_slice(), None) {
-            Some(result) => match result {
-                Ok(_) => {},
-                Err(e) => return Err(ScanError::NetworkError(format!("Failed to send packet: {}", e))),
-            },
-            None => return Err(ScanError::NetworkError("Failed to send packet".to_string())),
-        }
+        tokio::task::spawn_blocking(move || {
+            let ch = match channel(&interface, Default::default()) {
+                Ok(ch) => ch,
+                Err(e) => return Err(ScanError::NetworkError(e.to_string())),
+            };
 
-        // Listen for responses with timeout
-        let start_time = Instant::now();
-        
-        while start_time.elapsed() < self.timeout {
-            match receiver.next() {
-                Ok(packet) => {
-                    if let Some(ethernet_packet) = EthernetPacket::new(packet) {
-                        if ethernet_packet.get_ethertype() == EtherTypes::Arp {
-                            if let Some(arp_response) = ArpPacket::new(ethernet_packet.payload()) {
-                                // Check if this is a reply to our request
-                                if arp_response.get_operation() == ArpOperations::Reply &&
-                                   arp_response.get_sender_proto_addr() == target_ip {
-                                    return Ok(Some((arp_response.get_sender_hw_addr(), arp_response.get_sender_proto_addr())));
+            let (mut sender, mut receiver) = match ch {
+                Channel::Ethernet(tx, rx) => (tx, rx),
+                _ => return Err(ScanError::NetworkError("Unsupported channel type".to_string())),
+            };
+
+            match sender.send_to(packet_buffer.as_slice(), None) {
+                Some(Ok(_)) => {},
+                Some(Err(e)) => return Err(ScanError::NetworkError(format!("Failed to send packet: {}", e))),
+                None => return Err(ScanError::NetworkError("Failed to send packet".to_string())),
+            }
+
+            let start_time = Instant::now();
+
+            while start_time.elapsed() < timeout {
+                match receiver.next() {
+                    Ok(packet) => {
+                        if let Some(ethernet_packet) = EthernetPacket::new(packet) {
+                            if ethernet_packet.get_ethertype() == EtherTypes::Arp {
+                                if let Some(arp_response) = ArpPacket::new(ethernet_packet.payload()) {
+                                    if arp_response.get_operation() == ArpOperations::Reply &&
+                                       arp_response.get_sender_proto_addr() == target_ip {
+                                        return Ok(Some((arp_response.get_sender_hw_addr(), arp_response.get_sender_proto_addr())));
+                                    }
                                 }
                             }
                         }
-                    }
-                },
-                Err(_) => continue,
+                    },
+                    Err(_) => continue,
+                }
             }
-        }
 
-        Ok(None) // Timeout
+            Ok(None)
+        })
+        .await
+        .map_err(|e| ScanError::NetworkError(format!("Task join error: {}", e)))?
     }
 }
 
